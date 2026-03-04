@@ -7,71 +7,83 @@ from datetime import datetime
 
 producer = KafkaProducer(
     bootstrap_servers='127.0.0.1:9092',
-    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-    linger_ms=0,
-    acks='all',
-    retries=5,
-    max_in_flight_requests_per_connection=1
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
-# normal human ranges
-def generate_normal_vitals():
-    heart_rate = random.randint(65, 90)          # bpm
-    spo2 = random.randint(96, 100)               # %
-    temperature = round(random.uniform(36.5, 37.2), 1)  # °C
-    systolic = random.randint(110, 125)
-    diastolic = random.randint(70, 85)
-
-    return [heart_rate, spo2, temperature, systolic, diastolic]
-
-# abnormal condition
-def generate_abnormal_vitals():
-    heart_rate = random.randint(120, 160)
-    spo2 = random.randint(82, 90)
-    temperature = round(random.uniform(38.5, 40.5), 1)
-    systolic = random.randint(140, 180)
-    diastolic = random.randint(95, 120)
-
-    return [heart_rate, spo2, temperature, systolic, diastolic]
-
+# Define realistic patient baselines
+patients = {
+    "P001": {
+        "hr_range": (70, 85),
+        "spo2_range": (95, 100),
+        "temp_range": (36.5, 37.2),
+        "sys_range": (110, 125),
+        "dia_range": (70, 85)
+    },
+    "P002": {
+        "hr_range": (60, 75),
+        "spo2_range": (94, 99),
+        "temp_range": (36.4, 37.0),
+        "sys_range": (105, 120),
+        "dia_range": (65, 80)
+    },
+    "P003": {
+        "hr_range": (80, 95),
+        "spo2_range": (96, 100),
+        "temp_range": (36.8, 37.5),
+        "sys_range": (115, 130),
+        "dia_range": (75, 90)
+    }
+}
 
 file = "data/live_vitals.csv"
 
-# create CSV header
 with open(file, mode="w", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["timestamp","heart_rate","spo2","temperature","systolic_bp","diastolic_bp"])
+    writer.writerow(["timestamp","patient_id","heart_rate","spo2","temperature","systolic_bp","diastolic_bp"])
 
-print("Starting patient monitor...\n")
+print("Starting multi-patient monitor...\n")
 
 while True:
-    # 85% normal, 15% abnormal
-    if random.random() < 0.85:
-        vitals = generate_normal_vitals()
+    patient_id = random.choice(list(patients.keys()))
+    baseline = patients[patient_id]
+
+    # 80% normal, 20% abnormal
+    if random.random() < 0.8:
+        heart_rate = random.randint(*baseline["hr_range"])
+        spo2 = random.randint(*baseline["spo2_range"])
+        temperature = round(random.uniform(*baseline["temp_range"]), 1)
+        systolic = random.randint(*baseline["sys_range"])
+        diastolic = random.randint(*baseline["dia_range"])
         status = "NORMAL"
     else:
-        vitals = generate_abnormal_vitals()
+        heart_rate = random.randint(120, 170)
+        spo2 = random.randint(80, 90)
+        temperature = round(random.uniform(38.5, 41.0), 1)
+        systolic = random.randint(150, 200)
+        diastolic = random.randint(95, 120)
         status = "ABNORMAL"
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    row = [timestamp] + vitals
 
-    # append to csv
+    row = [timestamp, patient_id, heart_rate, spo2, temperature, systolic, diastolic]
+
     with open(file, mode="a", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(row)
 
-    print(f"{timestamp} | HR:{vitals[0]}  SpO2:{vitals[1]}%  Temp:{vitals[2]}°C  BP:{vitals[3]}/{vitals[4]}  --> {status}")
+    print(f"{timestamp} | {patient_id} | HR:{heart_rate} SpO2:{spo2}% Temp:{temperature} BP:{systolic}/{diastolic} --> {status}")
 
     data = {
-    "heart_rate": vitals[0],
-    "spo2": vitals[1],
-    "temperature": vitals[2],
-    "systolic_bp": vitals[3],
-    "diastolic_bp": vitals[4]
-}
+        "timestamp": timestamp,
+        "patient_id": patient_id,
+        "heart_rate": heart_rate,
+        "spo2": spo2,
+        "temperature": temperature,
+        "systolic_bp": systolic,
+        "diastolic_bp": diastolic
+    }
 
     producer.send("patient_vitals", data)
-    producer.flush()  # keep this
+    producer.flush()
 
     time.sleep(2)

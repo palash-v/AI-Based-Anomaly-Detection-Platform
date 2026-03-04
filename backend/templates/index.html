@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Live Patient Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+body{
+margin:0;
+font-family:Arial;
+background:linear-gradient(135deg,#0f172a,#1e293b);
+color:white;
+}
+
+.navbar{
+background:#020617;
+padding:15px 30px;
+border-bottom:1px solid #1e293b;
+}
+
+.navbar a{
+text-decoration:none;
+margin-right:20px;
+padding:8px 16px;
+border-radius:8px;
+color:#94a3b8;
+font-weight:600;
+}
+
+.navbar a.active{
+background:#0ea5e9;
+color:white;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+padding:30px;
+}
+
+.card{
+background:#1e1b4b;
+padding:20px;
+border-radius:12px;
+}
+
+.grid2{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:25px;
+margin-top:30px;
+}
+
+.status-low{
+background:#16a34a;
+padding:10px;
+border-radius:8px;
+}
+
+.status-alert{
+background:#dc2626;
+padding:10px;
+border-radius:8px;
+}
+
+canvas{
+height:300px!important;
+}
+
+.log{
+font-size:14px;
+margin-bottom:6px;
+}
+
+.filter{
+margin:20px 0;
+}
+
+select{
+padding:8px 12px;
+border-radius:6px;
+border:1px solid #334155;
+background:#020617;
+color:white;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="navbar">
+<a href="/dashboard">📊 Analytics Dashboard</a>
+<a href="/monitor" class="active">🏥 Live Monitor</a>
+</div>
+
+<div class="container">
+
+<h1 style="color:#7c3aed;">Real-Time Patient Monitoring</h1>
+
+<!-- PATIENT FILTER -->
+<div class="filter">
+
+<label style="margin-right:10px;font-weight:bold;">
+Filter Patient:
+</label>
+
+<select id="patientFilter">
+
+<option value="ALL">All Patients</option>
+<option value="P001">P001</option>
+<option value="P002">P002</option>
+<option value="P003">P003</option>
+
+</select>
+
+</div>
+
+<!-- STATUS CARD -->
+
+<div class="card">
+
+<h3 id="status">Loading...</h3>
+
+<p>❤️ Heart Rate: <span id="hr">--</span></p>
+<p>🫁 SpO₂: <span id="spo2">--</span></p>
+<p>🌡 Temperature: <span id="temp">--</span></p>
+<p>🩸 Blood Pressure: <span id="bp">--</span></p>
+<p>⏱ Last Updated: <span id="timestamp">--</span></p>
+
+</div>
+
+<div class="grid2">
+
+<div class="card">
+
+<h3>Heart Rate Trend</h3>
+<canvas id="hrChart"></canvas>
+
+</div>
+
+<div class="card">
+
+<h3>Alert History</h3>
+<div id="alertHistory"></div>
+
+</div>
+
+</div>
+
+<div class="card" style="margin-top:30px;">
+
+<h3>Recent Patient Logs</h3>
+<div id="logs"></div>
+
+</div>
+
+</div>
+
+<script>
+
+let hrData=[];
+let labels=[];
+let alerts=[];
+let selectedPatient="ALL";
+
+document.getElementById("patientFilter").addEventListener("change",function(){
+selectedPatient=this.value;
+});
+
+const chart=new Chart(document.getElementById("hrChart"),{
+type:"line",
+data:{labels:labels,datasets:[{label:"Heart Rate",data:hrData,borderColor:"#ef4444",tension:0.4}]},
+options:{responsive:true,maintainAspectRatio:false}
+});
+
+async function fetchData(){
+
+const res=await fetch('/latest');
+const data=await res.json();
+
+if(!data.heart_rate) return;
+
+/* PATIENT FILTER */
+
+if(selectedPatient!=="ALL" && data.patient_id!==selectedPatient){
+return;
+}
+
+document.getElementById("hr").innerText=data.heart_rate;
+document.getElementById("spo2").innerText=data.spo2;
+document.getElementById("temp").innerText=data.temperature;
+document.getElementById("bp").innerText=data.systolic_bp+"/"+data.diastolic_bp;
+document.getElementById("timestamp").innerText=data.timestamp;
+
+const time=new Date().toLocaleTimeString();
+
+if(hrData.length>15){
+hrData.shift();
+labels.shift();
+}
+
+hrData.push(data.heart_rate);
+labels.push(time);
+chart.update();
+
+if(data.severity==="HIGH"||data.severity==="MEDIUM"){
+
+document.getElementById("status").innerText=
+"🚨 "+data.severity+" RISK - "+data.patient_id;
+
+document.getElementById("status").className="status-alert";
+
+const alert=`${time} | ${data.patient_id} | Score ${data.anomaly_score}`;
+
+if(!alerts.includes(alert)){
+alerts.unshift(alert);
+if(alerts.length>10)alerts.pop();
+}
+
+document.getElementById("alertHistory").innerHTML=
+alerts.map(a=>`<div class="log">${a}</div>`).join("");
+
+}else{
+
+document.getElementById("status").innerText=
+"✅ LOW RISK - "+data.patient_id;
+
+document.getElementById("status").className="status-low";
+
+}
+
+}
+
+async function fetchLogs(){
+
+const res=await fetch('/logs');
+const logs=await res.json();
+
+document.getElementById("logs").innerHTML=
+logs
+.filter(l => selectedPatient==="ALL" || l.patient_id===selectedPatient)
+.slice(0,20)
+.map(l=>
+`<div class="log">
+${new Date(l.timestamp).toLocaleTimeString()} |
+${l.patient_id} |
+${l.severity}
+</div>`
+).join("");
+
+}
+
+setInterval(()=>{
+fetchData();
+fetchLogs();
+},2000);
+
+fetchData();
+fetchLogs();
+
+</script>
+
+</body>
+</html>
